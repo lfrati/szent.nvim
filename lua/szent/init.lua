@@ -8,8 +8,7 @@ local defaults = {
     target_pane = ":.2",
     move_to_next_cell = true,
     cell_delimiter = [[^\s*#\s*%%]],
-    repl_commands = { "python", "ipython", "ssh", "uv" },
-    warn_no_repl = true,
+    repl_commands = {},
     highlight_ns = vim.api.nvim_create_namespace("szent_highlight"),
     timeout = 200
 }
@@ -84,26 +83,6 @@ local function run_tmux(args, input)
     return vim.fn.system(command)
 end
 
-local function ensure_configured()
-    if state.target_pane ~= "" then
-        state.configured = true
-        return true
-    end
-
-    if state.configuring then
-        return false
-    end
-
-    state.configuring = true
-    local ok = M.configure()
-    state.configuring = false
-
-    if ok then
-        state.configured = true
-    end
-    return ok
-end
-
 -- Helper for case-insensitive substring checks against user-specified lists.
 local function matches_any_command(cmd, patterns)
     if not cmd or cmd == "" then
@@ -148,7 +127,7 @@ local function highlight_range(range)
         M.opts.highlight_ns,
         "Visual",
         { range.start_line, 0 },
-        { range.stop_line - 1, 0 },
+        { range.end_line - 1, 0 },
         { timeout = M.opts.timeout } -- auto-clear after 300 ms
     )
 end
@@ -195,10 +174,29 @@ function M.cell_range()
     }
 end
 
+function M.visual_range()
+    local start_line = vim.fn.getpos("v")[2]
+    local end_line = vim.fn.getpos(".")[2]
+
+    -- start doesn't mean top, it means start
+    -- if you start at a line and go up, start > end
+    if start_line > end_line then
+        start_line, end_line = end_line, start_line
+    end
+
+    return {
+        start_line = start_line - 1,
+        end_line = end_line + 1,
+    }
+end
+
 function M.paragraph_range()
     local start_line = vim.fn.search('^\\s*$', 'bcnW')
     local end_line = vim.fn.search('^\\s*$', 'cnW')
+
+    -- at the end of the file there are no empty lines after
     end_line = (end_line == 0) and vim.fn.line('$') + 1 or end_line
+
     return {
         start_line = start_line,
         end_line = end_line,
@@ -254,7 +252,7 @@ function M.configure()
 end
 
 function M.list_panes(opts)
-    local format = "#{pane_id} #{session_name}:#{window_index}.#{pane_index} #{window_name}#{?window_active, (active),}"
+    local format = "#{pane_id} #{session_name}:#{window_index}.#{pane_index} #{pane_current_command}#{?window_active, (active),}"
     local output = run_tmux({ "list-panes", "-a", "-F", format })
 
     if opts and opts.silent then
@@ -301,15 +299,9 @@ function M.send(text)
 end
 
 function M.send_visual()
-    local start_pos = vim.fn.getpos("'<")
-    local end_pos = vim.fn.getpos("'>")
-    local start_line = math.min(start_pos[2], end_pos[2])
-    local end_line = math.max(start_pos[2], end_pos[2])
-    if start_line == 0 or end_line == 0 then
-        notify("No visual selection to send.", vim.log.levels.WARN)
-        return
-    end
-    local lines = M.get_range(start_line, end_line)
+    local range = M.visual_range()
+    -- highlight_range(range) -- no need to highlight the highlighting
+    local lines = M.get_range(range.start_line, range.end_line)
     M.send(lines)
 end
 
