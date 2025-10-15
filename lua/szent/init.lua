@@ -143,12 +143,12 @@ local function target_pane_exists()
     end
 
     -- has-session will fail (non-zero exit) if the target pane doesn't exist
-    local output = run_tmux({ "has-session", "-t", state.target_pane })
+    run_tmux({ "has-session", "-t", state.target_pane })
     if vim.v.shell_error ~= 0 then
         return false
     end
 
-    return trim(output) ~= ""
+    return true
 end
 
 local function ensure_target_ready()
