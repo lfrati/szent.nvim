@@ -13,17 +13,16 @@ local defaults = {
     timeout = 200
 }
 
+M.opts = vim.deepcopy(defaults)
+
 local state = {
-    socket_name = defaults.socket_name,
-    target_pane = defaults.target_pane,
-    configured = false,
-    configuring = false,
+    socket_name = "",
+    target_pane = M.opts.target_pane,
 }
 
 local function notify(msg, level)
     vim.notify(msg, level or vim.log.levels.INFO, { title = "szent" })
 end
-
 
 local function trim(str)
     if not str then
@@ -31,7 +30,6 @@ local function trim(str)
     end
     return (str:gsub("^%s+", ""):gsub("%s+$", ""))
 end
-
 
 local function normalize_list(value)
     if type(value) == "string" then
@@ -49,14 +47,27 @@ local function normalize_list(value)
     return result
 end
 
+local function inside_tmux()
+    return vim.env.TMUX ~= nil and vim.env.TMUX ~= ""
+end
+
 local function detect_tmux_socket()
     local tmux_env = vim.env.TMUX
     if not tmux_env or tmux_env == "" then
         return nil
     end
-    local socket = tmux_env:match("([^,]+)")
-    return socket
+    return tmux_env:match("([^,]+)")
 end
+
+local function ensure_tmux()
+    if inside_tmux() then
+        return true
+    end
+    notify("Not running inside tmux; launch Neovim from a tmux pane.", vim.log.levels.WARN)
+    return false
+end
+
+state.socket_name = detect_tmux_socket() or state.socket_name
 
 -- Assemble the base tmux invocation depending on socket configuration.
 local function tmux_base_args()
@@ -74,6 +85,9 @@ end
 
 -- Wrapper around vim.fn.system that feeds the composed tmux command.
 local function run_tmux(args, input)
+    if not inside_tmux() then
+        return ""
+    end
     local command = {}
     vim.list_extend(command, tmux_base_args())
     vim.list_extend(command, args)
@@ -81,6 +95,24 @@ local function run_tmux(args, input)
         return vim.fn.system(command, input)
     end
     return vim.fn.system(command)
+end
+
+local function current_target_command()
+    if state.target_pane == "" then
+        return nil
+    end
+    local output = run_tmux({
+        "display-message",
+        "-p",
+        "-t",
+        state.target_pane,
+        "#{pane_current_command}",
+    })
+    output = trim(output)
+    if output == "" then
+        return nil
+    end
+    return output
 end
 
 -- Helper for case-insensitive substring checks against user-specified lists.
@@ -102,24 +134,70 @@ local function matches_any_command(cmd, patterns)
     return false
 end
 
-local function current_target_command()
-    if state.target_pane == "" then
-        return nil
+local function target_pane_exists()
+    if not ensure_tmux() then
+        return false
     end
-    local output = run_tmux({
-        "display-message",
-        "-p",
-        "-t",
-        state.target_pane,
-        "#{pane_current_command}",
-    })
-    output = trim(output)
-    if output == "" then
-        return nil
+    if not state.target_pane or state.target_pane == "" then
+        return false
     end
-    return output
+
+    -- has-session will fail (non-zero exit) if the target pane doesn't exist
+    local output = run_tmux({ "has-session", "-t", state.target_pane })
+    if vim.v.shell_error ~= 0 then
+        return false
+    end
+
+    return trim(output) ~= ""
 end
 
+local function ensure_target_ready()
+    if not ensure_tmux() then
+        return false
+    end
+
+    if not state.target_pane or state.target_pane == "" then
+        notify("No tmux pane configured; run :SzentConfig.", vim.log.levels.WARN)
+        return false
+    end
+
+    -- ensure the configured pane actually exists
+    if not target_pane_exists() then
+        notify(("Target pane [%s] not found; run :SzentConfig."):format(state.target_pane), vim.log.levels.WARN)
+        return false
+    end
+
+    local expected = M.opts.repl_commands
+    if not expected or vim.tbl_isempty(expected) then
+        return true
+    end
+
+    local cmd = current_target_command()
+    if not cmd then
+        notify("Could not determine command running in target tmux pane.", vim.log.levels.WARN)
+        return false
+    end
+
+    if matches_any_command(cmd, expected) then
+        return true
+    end
+
+    notify(
+        string.format(
+            "Target tmux pane %s is running '%s', expected one of: %s",
+            state.target_pane or "",
+            cmd,
+            table.concat(expected, ", ")
+        ),
+        vim.log.levels.WARN
+    )
+
+    return false
+end
+
+-- #################################################################################
+-- ##                              TEXT UTILS                                     ##
+-- #################################################################################
 
 local function highlight_range(range)
     vim.hl.range(
@@ -132,7 +210,7 @@ local function highlight_range(range)
     )
 end
 
-function M.get_range(start_line, end_line)
+local function get_range(start_line, end_line)
     if not start_line or not end_line then
         error("get_range requires explicit start_line and end_line", 0)
     end
@@ -203,23 +281,48 @@ function M.paragraph_range()
     }
 end
 
+-- #################################################################################
+-- ##                              CONF                                           ##
+-- #################################################################################
+
 function M.setup(opts)
     local base = vim.deepcopy(defaults)
-
     M.opts = vim.tbl_deep_extend("force", base, opts or {})
     M.opts.repl_commands = normalize_list(M.opts.repl_commands)
 
-    local detected_socket = detect_tmux_socket()
-    state.socket_name = detected_socket or ""
+    state.socket_name = detect_tmux_socket() or ""
     state.target_pane = M.opts.target_pane or ""
-    state.configured = state.target_pane ~= ""
+end
+
+local function list_panes()
+    if not ensure_tmux() then
+        return nil
+    end
+    local format = "#{pane_index}) #{pane_current_command}#{?pane_active, *,}\tid:[#{pane_id}]"
+    local args = { "list-panes", "-F", format }
+    local output = run_tmux(args)
+
+    if vim.v.shell_error ~= 0 then
+        notify(("tmux error: %s"):format(trim(output)), vim.log.levels.ERROR)
+        return nil
+    end
+
+    if trim(output) == "" then
+        notify("No tmux panes found.", vim.log.levels.WARN)
+        return nil
+    end
+
+    return output
 end
 
 function M.configure()
-    -- Step 2: list panes and prompt selection
-    local panes_output = trim(M.list_panes() or "")
+    local panes_output = list_panes()
+    if not panes_output then
+        return
+    end
+    panes_output = trim(panes_output)
     if panes_output == "" then
-        return notify("No panes to select.", vim.log.levels.WARN)
+        return
     end
 
     -- Split tmux output into lines for selection
@@ -240,22 +343,13 @@ function M.configure()
     end)
 end
 
-function M.list_panes(opts)
-    local format = "#{pane_index}) #{pane_current_command}#{?pane_active, *,}\tid:[#{pane_id}]"
-    local args = { "list-panes", "-F", format }
-
-    local output = run_tmux(args)
-
-    if output == "" then
-        notify("No tmux panes found.", vim.log.levels.WARN)
-    end
-
-    return output
-end
+-- #################################################################################
+-- ##                              CORE                                           ##
+-- #################################################################################
 
 -- Main entry point: push text to tmux using load-buffer/paste-buffer.
 function M.send(text)
-    if not M.repl_check() or not text then
+    if not ensure_target_ready() or not text then
         return
     end
 
@@ -286,7 +380,7 @@ end
 function M.send_visual()
     local range = M.visual_range()
     -- highlight_range(range) -- no need to highlight the highlighting
-    local lines = M.get_range(range.start_line, range.end_line)
+    local lines = get_range(range.start_line, range.end_line)
     M.send(lines)
 end
 
@@ -294,7 +388,7 @@ function M.send_cell()
     local range = M.cell_range()
     highlight_range(range)
 
-    local lines = M.get_range(range.start_line, range.end_line)
+    local lines = get_range(range.start_line, range.end_line)
     M.send(lines)
 
     if not M.opts.move_to_next_cell then
@@ -310,62 +404,8 @@ function M.send_paragraph()
     local range = M.paragraph_range()
     highlight_range(range)
 
-    local lines = M.get_range(range.start_line, range.end_line)
+    local lines = get_range(range.start_line, range.end_line)
     M.send(lines)
 end
-
-function M.repl_check()
-
-    if not M.opts.repl_commands or next(M.opts.repl_commands) == nil then
-        return true
-    end
-
-    local cmd = current_target_command()
-    if not cmd then
-        notify("Could not determine command running in target tmux pane.", vim.log.levels.WARN)
-        return false
-    end
-
-    local expected = M.opts.repl_commands
-    if vim.tbl_isempty(expected) then
-        return true
-    end
-
-    if matches_any_command(cmd, expected) then
-        return true
-    end
-
-    notify(
-        string.format(
-            "Target tmux pane %s is running '%s', expected one of: %s",
-            state.target_pane or "",
-            cmd,
-            table.concat(expected, ", ")
-        ),
-        vim.log.levels.WARN
-    )
-
-    return false
-end
-
-function M.set_target_pane(pane)
-    state.target_pane = pane or ""
-    M.opts.target_pane = state.target_pane
-    state.configured = state.target_pane ~= ""
-end
-
-function M.set_socket_name(socket_name)
-    state.socket_name = socket_name or ""
-    M.opts.socket_name = state.socket_name
-end
-
-function M.get_config()
-    return {
-        socket_name = state.socket_name,
-        target_pane = state.target_pane,
-    }
-end
-
-M.setup()
 
 return M
