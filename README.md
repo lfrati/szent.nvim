@@ -5,6 +5,8 @@
 # szent.nvim
 A tiny Neovim bridge that sends code from your current buffer to a tmux REPL using safe bracketed paste.
 
+<img width="920" height="305" alt="szent_example" src="https://github.com/user-attachments/assets/6606f689-1663-4d85-8e3b-88caf2930f32" />
+
 ## Features
 - Target any tmux pane and paste via `load-buffer`/`paste-buffer -p`.
 - Send from visual selection, paragraph or cell.
@@ -37,7 +39,8 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ## Usage
 - `:SzentConfig` prompts for a tmux pane to send text to (in case you changed your mind about `:.2`).
-3 ways to send code.
+<img width="463" height="108" alt="szent_select" src="https://github.com/user-attachments/assets/e68618db-917a-48aa-9d15-3dd945993f85" />
+
 - `send_visual()`, try to guess.
 - `send_paragraph()`, another cryptic one.
 - `send_cell()` sends the current delimited cell (defaults to `# %%`), and moves the cursor to the next cell.
