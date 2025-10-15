@@ -1,8 +1,10 @@
 <p align="center">
 <img width="300" height="300" alt="szent_round_400" src="https://github.com/user-attachments/assets/389f58cb-4c23-4ebc-86d0-295c22875252" />
+  <p align="center">/sɛnt/ : holy [hu], past of send [en]</p>
 <p>
 
-# szent.nvim
+# szent.nvim 
+<code style="color:red">text</code>
 A tiny Neovim bridge that sends code from your current buffer to a tmux REPL using safe bracketed paste.
 
 <img width="920" height="305" alt="szent_example" src="https://github.com/user-attachments/assets/6606f689-1663-4d85-8e3b-88caf2930f32" />
