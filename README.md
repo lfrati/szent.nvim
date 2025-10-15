@@ -1,5 +1,8 @@
-# szent.nvim
+<p align="center">
+<img width="300" height="300" alt="szent_round_400" src="https://github.com/user-attachments/assets/389f58cb-4c23-4ebc-86d0-295c22875252" />
+<p>
 
+# szent.nvim
 A tiny Neovim bridge that sends code from your current buffer to a tmux REPL using safe bracketed paste.
 
 ## Features
@@ -52,3 +55,7 @@ require("szent").setup({
   timeout = 200,                           -- highlight timeout in milliseconds
 })
 ```
+
+## Thanks
+- [slime](https://slime.common-lisp.dev/)
+- [vim-slime](https://github.com/jpalardy/vim-slime)
