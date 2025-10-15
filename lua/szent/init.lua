@@ -1,9 +1,9 @@
 local M = {}
 local api = vim.api
+local ui = require("szent.ui")
 
 -- Core tmux -> REPL bridge with bracketed-paste safety.
 local defaults = {
-    socket_name = "default",
     -- format: session:window.pane
     target_pane = ":.2",
     move_to_next_cell = true,
@@ -49,13 +49,13 @@ local function normalize_list(value)
     return result
 end
 
-local function detect_tmux_defaults()
+local function detect_tmux_socket()
     local tmux_env = vim.env.TMUX
     if not tmux_env or tmux_env == "" then
-        return nil, nil
+        return nil
     end
     local socket = tmux_env:match("([^,]+)")
-    return socket, ":."
+    return socket
 end
 
 -- Assemble the base tmux invocation depending on socket configuration.
@@ -128,7 +128,7 @@ local function highlight_range(range)
         "Visual",
         { range.start_line, 0 },
         { range.end_line - 1, 0 },
-        { timeout = M.opts.timeout } -- auto-clear after 300 ms
+        { timeout = M.opts.timeout }
     )
 end
 
@@ -204,65 +204,50 @@ function M.paragraph_range()
 end
 
 function M.setup(opts)
-    local detected_socket, detected_pane = detect_tmux_defaults()
     local base = vim.deepcopy(defaults)
-
-    if detected_socket then
-        base.socket_name = detected_socket
-    end
-
-    if detected_pane and base.target_pane == "" then
-        base.target_pane = detected_pane
-    end
 
     M.opts = vim.tbl_deep_extend("force", base, opts or {})
     M.opts.repl_commands = normalize_list(M.opts.repl_commands)
-    M.opts.bracketed_paste = nil
-    M.opts.force_bracketed_paste_for = nil
 
-    state.socket_name = M.opts.socket_name or ""
+    local detected_socket = detect_tmux_socket()
+    state.socket_name = detected_socket or ""
     state.target_pane = M.opts.target_pane or ""
     state.configured = state.target_pane ~= ""
 end
 
 function M.configure()
-    local socket_input = vim.fn.input("tmux socket name or absolute path: ", state.socket_name or "")
-    if socket_input == nil then
-        return false
-    end
-    if socket_input ~= "" then
-        state.socket_name = socket_input
+    -- Step 2: list panes and prompt selection
+    local panes_output = trim(M.list_panes() or "")
+    if panes_output == "" then
+        return notify("No panes to select.", vim.log.levels.WARN)
     end
 
-    local panes = trim(M.list_panes({ silent = true }) or "")
-    if panes ~= "" then
-        notify("Available tmux panes:\n" .. panes, vim.log.levels.INFO)
+    -- Split tmux output into lines for selection
+    local panes = {}
+    for line in panes_output:gmatch("[^\r\n]+") do
+        table.insert(panes, line)
     end
 
-    local pane_input = vim.fn.input("tmux target pane: ", state.target_pane or "")
-    if pane_input == nil then
-        return false
-    end
-    pane_input = trim(pane_input)
-    if pane_input ~= "" then
-        state.target_pane = pane_input
-    end
-    state.configured = state.target_pane ~= ""
-    return state.configured
+    ui.select(panes, {
+        prompt = string.format("Select target pane [current: %s] (C-b q)", state.target_pane),
+        format_item = nil,
+    }, function(choice)
+        if not choice then
+            return notify("No pane selected.", vim.log.levels.INFO)
+        end
+        state.target_pane = trim(choice:match("%[(.-)%]") or choice)
+        notify("Configured target pane = " .. state.target_pane, vim.log.levels.INFO)
+    end)
 end
 
 function M.list_panes(opts)
-    local format = "#{pane_id} #{session_name}:#{window_index}.#{pane_index} #{pane_current_command}#{?window_active, (active),}"
-    local output = run_tmux({ "list-panes", "-a", "-F", format })
+    local format = "#{pane_index}) #{pane_current_command}#{?pane_active, *,}\tid:[#{pane_id}]"
+    local args = { "list-panes", "-F", format }
 
-    if opts and opts.silent then
-        return output
-    end
+    local output = run_tmux(args)
 
     if output == "" then
         notify("No tmux panes found.", vim.log.levels.WARN)
-    else
-        notify(output, vim.log.levels.INFO)
     end
 
     return output
@@ -330,6 +315,11 @@ function M.send_paragraph()
 end
 
 function M.repl_check()
+
+    if not M.opts.repl_commands or next(M.opts.repl_commands) == nil then
+        return true
+    end
+
     local cmd = current_target_command()
     if not cmd then
         notify("Could not determine command running in target tmux pane.", vim.log.levels.WARN)

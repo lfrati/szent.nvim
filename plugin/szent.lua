@@ -9,7 +9,3 @@ local szent = require("szent")
 vim.api.nvim_create_user_command("SzentConfig", function()
     szent.configure()
 end, {})
-
-vim.api.nvim_create_user_command("SzentListPanes", function()
-    szent.list_panes()
-end, {})
