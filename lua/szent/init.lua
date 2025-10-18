@@ -53,14 +53,18 @@ local tmux = Tmux.new({
 -- #################################################################################
 
 local function highlight_range(range)
-    vim.hl.range(
-        0,
-        M.opts.highlight_ns,
-        "Visual",
-        { range.start_line, 0 },
-        { range.end_line - 1, 0 },
-        { timeout = M.opts.timeout }
-    )
+    local start_row = math.max(range.start_line, 0)
+    local end_row = range.end_line - 2
+    if end_row >= start_row then
+        vim.hl.range(
+            0,
+            M.opts.highlight_ns,
+            "Visual",
+            { start_row, 0 },
+            { end_row, -1 },
+            { timeout = M.opts.timeout }
+        )
+    end
 end
 
 local function get_range(start_line, end_line)
@@ -106,19 +110,28 @@ function M.cell_range()
 end
 
 -- Select the inner cell content as a textobject by setting '< and '>
-function M.select_cell_inner()
+local function apply_textobject_selection(start_line, end_line)
     local mode = vim.fn.mode()
-    local was_visual = mode == "v" or mode == "V" or mode == "\022"
-    if was_visual then
+    if mode == "v" or mode == "V" or mode == "\022" then
         vim.cmd("normal! \\<Esc>")
     end
+    vim.fn.setpos("'<", { 0, start_line, 1, 0 })
+    vim.fn.setpos("'>", { 0, end_line, 9999, 0 })
+    vim.cmd("normal! `<v`>") -- reselect so pending operators (and Visual mode) use the marks
+end
+
+function M.select_cell_inner()
     local r = M.cell_range()
     local inner_start = math.max(1, r.start_line + 1)
     local inner_end = math.max(inner_start, r.end_line - 1)
-    -- Set marks for operator-pending/visual selections
-    vim.fn.setpos("'<", {0, inner_start, 1, 0})
-    vim.fn.setpos("'>", {0, inner_end, 9999, 0})
-    vim.cmd("normal! `<v`>") -- reselect so pending operators (and Visual mode) use the marks
+    apply_textobject_selection(inner_start, inner_end)
+end
+
+function M.select_cell_around()
+    local r = M.cell_range()
+    local outer_start = math.max(1, r.start_line)
+    local outer_end = math.max(outer_start, r.end_line - 1)
+    apply_textobject_selection(outer_start, outer_end)
 end
 
 function M.visual_range()
