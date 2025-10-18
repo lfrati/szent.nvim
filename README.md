@@ -47,6 +47,9 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 - `send_paragraph()`, another cryptic one.
 - `send_cell()` sends the current delimited cell (defaults to `# %%`), and moves the cursor to the next cell.
 
+Tip: use a text object for the cell content:
+`vim.keymap.set({"o","x"}, "ic", ":<C-u>lua require('szent').select_cell_inner()<CR>", { silent = true, desc = "inside cell" })` 
+
 
 ## Configuration
 All options are optional (duh.) and are merged with the defaults below:

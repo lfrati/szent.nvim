@@ -105,6 +105,22 @@ function M.cell_range()
     }
 end
 
+-- Select the inner cell content as a textobject by setting '< and '>
+function M.select_cell_inner()
+    local mode = vim.fn.mode()
+    local was_visual = mode == "v" or mode == "V" or mode == "\022"
+    if was_visual then
+        vim.cmd("normal! \\<Esc>")
+    end
+    local r = M.cell_range()
+    local inner_start = math.max(1, r.start_line + 1)
+    local inner_end = math.max(inner_start, r.end_line - 1)
+    -- Set marks for operator-pending/visual selections
+    vim.fn.setpos("'<", {0, inner_start, 1, 0})
+    vim.fn.setpos("'>", {0, inner_end, 9999, 0})
+    vim.cmd("normal! `<v`>") -- reselect so pending operators (and Visual mode) use the marks
+end
+
 function M.visual_range()
     local start_line = vim.fn.getpos("v")[2]
     local end_line = vim.fn.getpos(".")[2]
