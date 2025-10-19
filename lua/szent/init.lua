@@ -2,21 +2,43 @@ local M = {}
 local api = vim.api
 local ui = require("szent.ui")
 
+
+local Tmux = require("szent.tmux")
+
+local function notify(msg, level)
+    vim.notify(msg, level or vim.log.levels.INFO, { title = "szent" })
+end
+
 local defaults = {
     -- format: session:window.pane
     target_pane = ":.2",
-    move_to_next_cell = true,
     cell_delimiter = [[^\s*#\s*%%]],
     repl_commands = {},
     highlight_ns = vim.api.nvim_create_namespace("szent_highlight"),
     timeout = 200
 }
 
-M.opts = vim.deepcopy(defaults)
-
-local function notify(msg, level)
-    vim.notify(msg, level or vim.log.levels.INFO, { title = "szent" })
+local function apply_tmux_options(tmux, opts)
+    tmux:set_notify(notify)
+    tmux:set_socket_name(Tmux.detect_tmux_socket() or "")
+    tmux:set_target_pane(opts.target_pane or "")
+    tmux:set_repl_commands(opts.repl_commands)
+    opts.target_pane = tmux:get_target_pane()
 end
+
+local function init(opts)
+    local tmux = Tmux.new({
+        notify = notify,
+        target_pane = M.opts.target_pane,
+        repl_commands = M.opts.repl_commands,
+    })
+    apply_tmux_options(tmux, opts)
+    return tmux
+end
+
+M.opts = vim.deepcopy(defaults)
+local tmux = init(M.opts)
+
 
 local function trim(str)
     if not str then
@@ -41,29 +63,35 @@ local function normalize_list(value)
     return result
 end
 
-local Tmux = require("szent.tmux")
-local tmux = Tmux.new({
-    notify = notify,
-    target_pane = M.opts.target_pane,
-    repl_commands = M.opts.repl_commands,
-})
-
 -- #################################################################################
 -- ##                              TEXT UTILS                                     ##
 -- #################################################################################
 
-local function highlight_range(range)
+---@param range table
+---@param success boolean
+local function highlight_range(range, success)
     local start_row = math.max(range.start_line, 0)
     local end_row = range.end_line - 2
     if end_row >= start_row then
-        vim.hl.range(
-            0,
-            M.opts.highlight_ns,
-            "Visual",
-            { start_row, 0 },
-            { end_row, -1 },
-            { timeout = M.opts.timeout }
-        )
+        if success then
+            vim.hl.range(
+                0,
+                M.opts.highlight_ns,
+                "Visual",
+                { start_row, 0 },
+                { end_row, -1 },
+                { timeout = M.opts.timeout }
+            )
+        else
+            vim.hl.range(
+                0,
+                M.opts.highlight_ns,
+                "DiffDelete",
+                { start_row, 0 },
+                { end_row, -1 },
+                { timeout = M.opts.timeout }
+            )
+        end
     end
 end
 
@@ -109,12 +137,17 @@ function M.cell_range()
     }
 end
 
--- Select the inner cell content as a textobject by setting '< and '>
-local function apply_textobject_selection(start_line, end_line)
+local function exit_visual()
+    -- If we're in Visual mode, exit it properly
     local mode = vim.fn.mode()
     if mode == "v" or mode == "V" or mode == "\022" then
-        vim.cmd("normal! \\<Esc>")
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), 'x', false)
     end
+end
+
+-- Select the inner cell content as a textobject by setting '< and '>
+local function apply_textobject_selection(start_line, end_line)
+    exit_visual()
     vim.fn.setpos("'<", { 0, start_line, 1, 0 })
     vim.fn.setpos("'>", { 0, end_line, 9999, 0 })
     vim.cmd("normal! `<v`>") -- reselect so pending operators (and Visual mode) use the marks
@@ -172,11 +205,7 @@ function M.setup(opts)
     M.opts = vim.tbl_deep_extend("force", base, opts or {})
     M.opts.repl_commands = normalize_list(M.opts.repl_commands)
 
-    tmux:set_notify(notify)
-    tmux:set_socket_name(Tmux.detect_tmux_socket() or "")
-    tmux:set_target_pane(M.opts.target_pane or "")
-    tmux:set_repl_commands(M.opts.repl_commands)
-    M.opts.target_pane = tmux:get_target_pane()
+    apply_tmux_options(tmux, M.opts)
 end
 
 function M.configure()
@@ -209,14 +238,22 @@ function M.configure()
     end)
 end
 
+function M.ui_namespace()
+    return ui.namespace()
+end
+
 -- #################################################################################
 -- ##                              CORE                                           ##
 -- #################################################################################
 
 -- Main entry point: push text to tmux using load-buffer/paste-buffer.
 function M.send(text)
-    tmux:send(text)
-    tmux:press("Enter")
+    local success = tmux:send(text)
+    if success then
+        tmux:press("Enter")
+    end
+
+    return success
 end
 
 local function ensure_two_newlines(s)
@@ -234,24 +271,34 @@ end
 
 function M.send_visual()
     local range = M.visual_range()
-    -- highlight_range(range) -- no need to highlight the highlighting
 
     local lines = get_range(range.start_line, range.end_line)
     local text = table.concat(lines, "\n")
     text = ensure_two_newlines(text)
-    M.send(text)
+
+    local success = M.send(text)
+    if not success then
+        -- handle error by flashing red
+        exit_visual()
+        vim.schedule(function()
+            highlight_range(range, false)
+        end)
+    end
 end
 
-function M.send_cell()
+---@param opts table
+function M.send_cell(opts)
+    opts = opts or {}
     local range = M.cell_range()
-    highlight_range(range)
+    local move = opts.move or false
 
     local lines = get_range(range.start_line, range.end_line)
     local text = table.concat(lines, "\n")
     text = ensure_two_newlines(text)
-    M.send(text)
+    local success = M.send(text)
+    highlight_range(range, success)
 
-    if not M.opts.move_to_next_cell then
+    if not move then
         return
     end
 
@@ -262,12 +309,12 @@ end
 
 function M.send_paragraph()
     local range = M.paragraph_range()
-    highlight_range(range)
 
     local lines = get_range(range.start_line, range.end_line)
     local text = table.concat(lines, "\n")
     text = ensure_two_newlines(text)
-    M.send(text)
+    local error = M.send(text)
+    highlight_range(range, error)
 end
 
 return M

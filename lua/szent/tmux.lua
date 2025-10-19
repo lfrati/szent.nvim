@@ -71,7 +71,7 @@ function Tmux:_notify(msg, level)
     end
 end
 
----@param pane string
+---@param socket string
 function Tmux:set_socket_name(socket)
     self.socket_name = trim(socket or "")
 end
@@ -202,7 +202,7 @@ function Tmux:list_panes()
     if not self:ensure() then
         return nil
     end
-    local format = "#{pane_index}) #{pane_current_command}#{?pane_active, *,}\tid:[#{pane_id}]"
+    local format = "#{pane_index}) [#{pane_id}] #{pane_current_command}#{?pane_active, *,}       "
     local args = { "list-panes", "-F", format }
     local output = self:run_tmux(args)
 
@@ -222,20 +222,22 @@ end
 ---@param text string
 function Tmux:send(text)
     if not text or not self:ensure_target_ready() or type(text) ~= "string" or text == "" then
-        return
+        return false
     end
 
     self:run_tmux({ "send-keys", "-X", "-t", self.target_pane, "cancel" })
     self:run_tmux({ "load-buffer", "-" }, text)
     self:run_tmux({ "paste-buffer", "-d", "-p", "-t", self.target_pane })
+    return true
 end
 
 function Tmux:press(key)
     if not key or not self:ensure_target_ready() or type(key) ~= "string" or key == "" then
-        return
+        return false
     end
-    
+
     self:run_tmux({ "send-keys", "-t", self.target_pane, key })
+    return true
 end
 
 return Tmux

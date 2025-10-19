@@ -32,9 +32,10 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
         repl_commands = { "python", "ipython", "uv" },
       }
       -- keybindings are not set by default ♻️
-      vim.keymap.set("x", "<leader><leader>p", szent.send_visual, { desc = "szent: send selection", silent = true })
-      vim.keymap.set("n", "<leader><leader>p", szent.send_paragraph, { desc = "szent: send paragraph", silent = true })
-      vim.keymap.set("n", "<leader><leader>r", szent.send_cell, { desc = "szent: send cell and advance", silent = true })
+      vim.keymap.set("x", "<leader><leader>p", "<Plug>(SzentVisual)")
+      vim.keymap.set("n", "<leader><leader>p", "<Plug>(SzentParagraph)")
+      vim.keymap.set("n", "<leader><leader>r", "<Plug>(SzentCellAndMove)")
+
   end
 }
 ```
@@ -45,7 +46,8 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 - `send_visual()`, try to guess.
 - `send_paragraph()`, another cryptic one.
-- `send_cell()` sends the current delimited cell (defaults to `# %%`), and moves the cursor to the next cell.
+- `send_cell({move = true})` sends the current delimited cell (defaults to `# %%`), and then moves the cursor to the next cell.
+- `send_cell({move = false})` sends the current delimited cell (defaults to `# %%`), and then... nothing.
 
 Tip: use text objects for the cell content:
 ```lua
@@ -60,11 +62,24 @@ All options are optional (duh.) and are merged with the defaults below:
 ```lua
 require("szent").setup({
   target_pane = ":.2",                     -- tmux pane target default (session:window.pane)
-  move_to_next_cell = true,                -- jump to the next cell after sending
   cell_delimiter = [[^\s*#\s*%%]],         -- pattern that marks cell boundaries
   repl_commands = {},                      -- optional commands to assert before sending
   timeout = 200,                           -- highlight timeout in milliseconds
 })
+```
+
+Customize the popup picker colors with the exposed namespace:
+```
+'SzentCmd'    : color pane command
+'SzentActive' : color for the * marking the active pane
+'FloatBorder' : color for the popup border
+'FloatTitle'  : color for the popup title
+'Normal'      : base text color in the popup
+```
+
+```lua
+local ns = require("szent").ui_namespace()
+vim.api.nvim_set_hl(ns.popup, "FloatBorder", { fg = "#00ff00" })
 ```
 
 ## Thanks
