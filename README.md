@@ -42,12 +42,19 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ## Usage
 - `:SzentConfig` prompts for a tmux pane to send text to (in case you changed your mind about `:.2`).
-<img width="463" height="108" alt="szent_select" src="https://github.com/user-attachments/assets/e68618db-917a-48aa-9d15-3dd945993f85" />
+<img width="450" height="103" alt="image" src="https://github.com/user-attachments/assets/72ba1f6d-e291-4e05-bfe5-651608e4e2ea" />
+
 
 - `send_visual()`, try to guess.
 - `send_paragraph()`, another cryptic one.
 - `send_cell({move = true})` sends the current delimited cell (defaults to `# %%`), and then moves the cursor to the next cell.
 - `send_cell({move = false})` sends the current delimited cell (defaults to `# %%`), and then... nothing.
+
+| Szent succesfully  | Error while szending |
+| ------------- | ------------- |
+| <img width="320" height="167" alt="success" src="https://github.com/user-attachments/assets/1817968e-5ce2-4c4a-85cf-fd9e9fa87a40" />  | <img width="319" height="171" alt="error" src="https://github.com/user-attachments/assets/e2dbf5d1-d497-4f83-99d7-512cfa7cda6e" />  |
+| Code sent succesfully is highlighted with `Visual` | <pre> `Target tmux pane :.2 is running 'zsh'.` <br> &emsp; `Expected one of: python, ipython` </pre>|
+
 
 Tip: use text objects for the cell content:
 ```lua
@@ -76,7 +83,7 @@ Customize the popup picker colors with the exposed namespace:
 'FloatTitle'  : color for the popup title
 'Normal'      : base text color in the popup
 ```
-
+defining your own colors as follows:
 ```lua
 local ns = require("szent").ui_namespace()
 vim.api.nvim_set_hl(ns.popup, "FloatBorder", { fg = "#00ff00" })
