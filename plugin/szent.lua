@@ -11,19 +11,19 @@ vim.api.nvim_create_user_command("SzentConfig", function()
 end, {})
 
 
-vim.keymap.set("x", "<Plug>(SzentVisual)", function()
+vim.keymap.set("x", "<Plug>(szentvisual)", function()
     szent.send_visual()
 end, { desc = "szent: send selection", silent = true })
 
-vim.keymap.set("n", "<Plug>(SzentParagraph)", function()
+vim.keymap.set("n", "<Plug>(szentparagraph)", function()
     szent.send_paragraph()
 end, { desc = "szent: send paragraph", silent = true })
 
-vim.keymap.set("n", "<Plug>(SzentCellAndMove)", function()
+vim.keymap.set("n", "<Plug>(szentcellandmove)", function()
     szent.send_cell({ move = true })
 end, { desc = "szent: send cell and advance", silent = true })
 
-vim.keymap.set("n", "<Plug>(SzentCell)", function()
+vim.keymap.set("n", "<Plug>(szentcell)", function()
     szent.send_cell({ move = false })
 end, { desc = "szent: send cell and remain in current cell", silent = true })
 
